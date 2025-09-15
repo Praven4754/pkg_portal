@@ -1,53 +1,59 @@
 pipeline {
-    agent {
-        docker {
-            image 'docker:20.10.16'                  // lightweight Docker runner
-            args '-v /var/run/docker.sock:/var/run/docker.sock'
-        }
-    }
+    agent any
+
     environment {
-        DOCKERHUB_CREDENTIALS = credentials('dockerhub-creds')
+        // Read GHCR credentials from mounted .env
+        GHCR_USERNAME = sh(script: "grep GHCR_USERNAME /var/jenkins_home/.env | cut -d '=' -f2", returnStdout: true).trim()
+        GHCR_TOKEN    = sh(script: "grep GHCR_TOKEN /var/jenkins_home/.env | cut -d '=' -f2", returnStdout: true).trim()
     }
+
     stages {
-        stage('Checkout') {
+        stage('Checkout Repo') {
             steps {
-                git branch: 'main', url: 'https://github.com/Praven4754/pkg_portal.git'
+                echo "🔄 Checking out pkg_portal repo..."
+                git 'https://github.com/Praven4754/pkg_portal.git'
             }
         }
-        stage('Docker Login') {
-            steps {
-                sh """
-                    export DOCKER_CONFIG=\$WORKSPACE/.docker
-                    mkdir -p \$DOCKER_CONFIG
-                    echo \$DOCKERHUB_CREDENTIALS_PSW | docker login -u \$DOCKERHUB_CREDENTIALS_USR --password-stdin
-                """
-            }
-        }
-        stage('Build Docker Image') {
+
+        stage('Run Docker Compose') {
             steps {
                 dir("${WORKSPACE}") {
-                    sh 'docker build -t pravenkumar871/pkg_portal .'
+                    echo "🚀 Running Docker Compose..."
+                    sh '''
+                        # Ensure Docker socket is accessible
+                        if [ ! -S /var/run/docker.sock ]; then
+                            echo "❌ Docker socket not found!"
+                            exit 1
+                        fi
+
+                        # Login to GHCR
+                        echo $GHCR_TOKEN | docker login ghcr.io -u $GHCR_USERNAME --password-stdin
+
+                        # Run docker-compose with mounted .env and tfvars
+                        docker compose -f docker-compose.yml up -d
+                    '''
                 }
             }
         }
-        stage('Push to DockerHub') {
+
+        stage('Verify Deployment') {
             steps {
                 dir("${WORKSPACE}") {
-                    sh 'docker push pravenkumar871/pkg_portal'
-                }
-            }
-        }
-        stage('Run Container') {
-            steps {
-                dir("${WORKSPACE}") {
-                    sh 'docker compose -f docker-compose.yml up -d'
+                    sh '''
+                        echo "🔍 Checking container statuses..."
+                        docker compose -f docker-compose.yml ps
+                    '''
                 }
             }
         }
     }
+
     post {
-        always {
-            echo 'Pipeline finished.'
+        success {
+            echo "🎉 Deployment completed successfully!"
+        }
+        failure {
+            echo "❌ Deployment failed. Check logs above."
         }
     }
 }
