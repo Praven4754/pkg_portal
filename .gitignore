@@ -1,0 +1,55 @@
+# ----------------------
+# Terraform
+# ----------------------
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# ----------------------
+# Terraform secrets / sensitive files
+# ----------------------
+*.pem
+*.key
+terraform.tfvars
+terraform.tfvars.json
+*.env
+
+# ----------------------
+# Docker
+# ----------------------
+**/Dockerfile*
+**/docker-compose.override.yml
+**/compose.override.yml
+**/docker-compose.override.yaml
+**/compose.override.yaml
+*.log
+*.tmp
+*.bak
+**/data/
+**/grafana/data/
+**/grafana/config/
+
+# ----------------------
+# Jenkins
+# ----------------------
+**/jenkins_home/secrets/
+**/jenkins_home/workspace/
+**/jenkins_home/logs/
+**/jenkins_home/plugins/
+
+# ----------------------
+# OS / Editor
+# ----------------------
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
