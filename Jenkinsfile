@@ -1,7 +1,7 @@
 pipeline {
     agent {
         docker {
-            image 'docker:20.10.16'      // lightweight docker runner
+            image 'docker:20.10.16'                  // lightweight Docker runner
             args '-v /var/run/docker.sock:/var/run/docker.sock'
         }
     }
@@ -17,6 +17,8 @@ pipeline {
         stage('Docker Login') {
             steps {
                 sh """
+                    export DOCKER_CONFIG=\$WORKSPACE/.docker
+                    mkdir -p \$DOCKER_CONFIG
                     echo \$DOCKERHUB_CREDENTIALS_PSW | docker login -u \$DOCKERHUB_CREDENTIALS_USR --password-stdin
                 """
             }
