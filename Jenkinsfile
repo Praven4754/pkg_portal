@@ -5,25 +5,23 @@ pipeline {
         // Read GHCR credentials from the mounted .env file
         GHCR_USERNAME = sh(script: "grep GHCR_USERNAME /var/jenkins_home/.env | cut -d'=' -f2", returnStdout: true).trim()
         GHCR_TOKEN    = sh(script: "grep GHCR_TOKEN /var/jenkins_home/.env | cut -d'=' -f2", returnStdout: true).trim()
-        // Terraform variables file
+        // Set Terraform variables path
         TFVARS_FILE   = '/var/jenkins_home/terraform.tfvars'
-        // AWS environment variables for Terraform
-        AWS_SHARED_CREDENTIALS_FILE = '/root/.aws/credentials'
-        AWS_CONFIG_FILE             = '/root/.aws/config'
+        AWS_SHARED_CREDENTIALS_FILE = '/var/jenkins_home/.aws/credentials'
+        AWS_CONFIG_FILE             = '/var/jenkins_home/.aws/config'
     }
 
     stages {
         stage('Checkout Repo') {
             steps {
-                dir('/var/jenkins_home/workspace/pkg_portal') {
-                    git branch: 'main', url: 'https://github.com/Praven4754/pkg_portal.git'
-                }
+                // Let Jenkins clone the repo into its workspace
+                git branch: 'main', url: 'https://github.com/Praven4754/pkg_portal.git'
             }
         }
 
         stage('Terraform Init & Apply') {
             steps {
-                dir('/var/jenkins_home/workspace/pkg_portal') {
+                dir("${WORKSPACE}") {
                     sh """
                         echo '🔹 Initializing Terraform...'
                         terraform init
@@ -45,10 +43,11 @@ pipeline {
 
         stage('Deploy Docker Compose') {
             steps {
-                dir('/var/jenkins_home/workspace/pkg_portal') {
+                dir("${WORKSPACE}") {
                     sh """
                         echo '🚀 Deploying Docker Compose...'
                         docker compose -f docker-compose.yml up -d
+                        echo '✅ Docker Compose deployment finished'
                         docker compose ps
                     """
                 }
@@ -57,9 +56,9 @@ pipeline {
 
         stage('Verify Deployment') {
             steps {
-                dir('/var/jenkins_home/workspace/pkg_portal') {
+                dir("${WORKSPACE}") {
                     sh """
-                        echo '🔍 Verifying containers...'
+                        echo '🔍 Checking containers status...'
                         docker compose ps
                         echo '🎉 Deployment verification finished!'
                     """
@@ -73,7 +72,7 @@ pipeline {
             echo "✅ Pipeline finished successfully!"
         }
         failure {
-            echo "❌ Pipeline failed. Check logs above!"
+            echo "❌ Pipeline failed. Check the logs above!"
         }
     }
 }
