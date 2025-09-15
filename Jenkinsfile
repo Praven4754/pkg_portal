@@ -2,35 +2,48 @@ pipeline {
     agent any
 
     environment {
-        // Read GHCR credentials from mounted .env
-        GHCR_USERNAME = sh(script: "grep GHCR_USERNAME /var/jenkins_home/.env | cut -d '=' -f2", returnStdout: true).trim()
-        GHCR_TOKEN    = sh(script: "grep GHCR_TOKEN /var/jenkins_home/.env | cut -d '=' -f2", returnStdout: true).trim()
+        // Load GHCR and other environment variables from the mounted .env
+        DOTENV_FILE = '/mnt/jenkins_env/.env'
     }
 
     stages {
-        stage('Checkout Repo') {
+
+        stage('Load Env') {
             steps {
-                echo "🔄 Checking out pkg_portal repo..."
-                git branch: 'main', url: 'https://github.com/Praven4754/pkg_portal.git'
+                script {
+                    // Export all variables from the mounted .env
+                    def props = readFile(DOTENV_FILE).split("\n")
+                    for (line in props) {
+                        if (line.contains("=")) {
+                            def (key, value) = line.split("=", 2)
+                            env."${key.trim()}" = value.trim()
+                        }
+                    }
+                }
             }
         }
 
-        stage('Run Docker Compose') {
+        stage('Checkout Repo') {
             steps {
-                dir("${WORKSPACE}") {
-                    echo "🚀 Running Docker Compose..."
+                git branch: 'main',
+                    url: 'https://github.com/Praven4754/pkg_portal.git'
+            }
+        }
+
+        stage('Deploy Docker Compose') {
+            steps {
+                script {
+                    // Ensure docker-compose is installed on the host
                     sh '''
-                        # Ensure Docker socket is accessible
-                        if [ ! -S /var/run/docker.sock ]; then
-                            echo "❌ Docker socket not found!"
-                            exit 1
-                        fi
+                        docker-compose --version || sudo apt-get update && sudo apt-get install -y docker-compose
+                    '''
 
-                        # Login to GHCR
-                        echo $GHCR_TOKEN | docker login ghcr.io -u $GHCR_USERNAME --password-stdin
+                    // Login to GHCR using variables from .env
+                    sh 'echo $GHCR_TOKEN | docker login ghcr.io -u $GHCR_USERNAME --password-stdin'
 
-                        # Run docker-compose with mounted .env and tfvars
-                        docker compose -f docker-compose.yml up -d
+                    // Run docker-compose using the repo's file
+                    sh '''
+                        docker-compose -f docker-compose.yml up -d
                     '''
                 }
             }
@@ -38,10 +51,10 @@ pipeline {
 
         stage('Verify Deployment') {
             steps {
-                dir("${WORKSPACE}") {
+                script {
                     sh '''
-                        echo "🔍 Checking container statuses..."
-                        docker compose -f docker-compose.yml ps
+                        docker ps
+                        docker-compose -f docker-compose.yml ps
                     '''
                 }
             }
@@ -49,11 +62,11 @@ pipeline {
     }
 
     post {
-        success {
-            echo "🎉 Deployment completed successfully!"
-        }
         failure {
             echo "❌ Deployment failed. Check logs above."
+        }
+        success {
+            echo "✅ Deployment succeeded!"
         }
     }
 }
