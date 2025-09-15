@@ -1,59 +1,34 @@
 pipeline {
-    agent any
-
+    agent {
+        docker {
+            image 'docker:20.10.16'  // lightweight docker runner
+            args '-v /var/run/docker.sock:/var/run/docker.sock'
+        }
+    }
     environment {
-        TERRAFORM_DIR = "${WORKSPACE}"
-        SSH_KEY = credentials('ec2-ssh-key')  // Store your PEM key as Jenkins credential
+        DOCKERHUB_CREDENTIALS = credentials('dockerhub-creds')
     }
-
     stages {
-        stage('Clone Repository') {
+        stage('Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/Praven4754/pkg_portal.git'
+                git 'https://github.com/Praven4754/pkg_portal.git'
             }
         }
-
-        stage('Terraform Init & Apply') {
+        stage('Build Docker Image') {
             steps {
-                dir("${TERRAFORM_DIR}") {
-                    sh """
-                    terraform init
-                    terraform apply -auto-approve
-                    """
-                }
+                sh 'docker build -t pravenkumar871/pkg_portal .'
             }
         }
-
-        stage('Upload docker-compose.yml to EC2') {
+        stage('Push to DockerHub') {
             steps {
-                script {
-                    sh """
-                    scp -i ${SSH_KEY} docker-compose.yml ubuntu@<EC2_PUBLIC_IP>:/home/ubuntu/pkg_portal/docker-compose.yml
-                    """
-                }
+                sh "echo ${DOCKERHUB_CREDENTIALS_PSW} | docker login -u ${DOCKERHUB_CREDENTIALS_USR} --password-stdin"
+                sh 'docker push pravenkumar871/pkg_portal'
             }
         }
-
-        stage('Run Docker Compose on EC2') {
+        stage('Run Container') {
             steps {
-                script {
-                    sh """
-                    ssh -i ${SSH_KEY} ubuntu@<EC2_PUBLIC_IP> 'cd /home/ubuntu/pkg_portal && docker compose up -d'
-                    """
-                }
+                sh 'docker compose -f compose.yml up -d'
             }
-        }
-    }
-
-    post {
-        always {
-            echo "Pipeline finished!"
-        }
-        success {
-            echo "✅ Terraform + Docker deployment succeeded!"
-        }
-        failure {
-            echo "❌ Deployment failed!"
         }
     }
 }
