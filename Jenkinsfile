@@ -2,71 +2,77 @@ pipeline {
     agent any
 
     environment {
-        // Load GHCR and other environment variables from the mounted .env
-        DOTENV_FILE = '/mnt/jenkins_env/.env'
+        // Read GHCR credentials from the mounted .env file
+        GHCR_USERNAME = sh(script: "grep GHCR_USERNAME /var/jenkins_home/.env | cut -d'=' -f2", returnStdout: true).trim()
+        GHCR_TOKEN    = sh(script: "grep GHCR_TOKEN /var/jenkins_home/.env | cut -d'=' -f2", returnStdout: true).trim()
+        // Set Terraform variables path
+        TFVARS_FILE   = '/var/jenkins_home/terraform.tfvars'
     }
 
     stages {
-
-        stage('Load Env') {
+        stage('Checkout Repo') {
             steps {
-                script {
-                    // Export all variables from the mounted .env
-                    def props = readFile(DOTENV_FILE).split("\n")
-                    for (line in props) {
-                        if (line.contains("=")) {
-                            def (key, value) = line.split("=", 2)
-                            env."${key.trim()}" = value.trim()
-                        }
-                    }
+                // Make sure we clone the repo into the workspace
+                dir('/var/jenkins_home/workspace/pkg_portal') {
+                    git branch: 'main', url: 'https://github.com/Praven4754/pkg_portal.git'
                 }
             }
         }
 
-        stage('Checkout Repo') {
+        stage('Terraform Init & Apply') {
             steps {
-                git branch: 'main',
-                    url: 'https://github.com/Praven4754/pkg_portal.git'
+                dir('/var/jenkins_home/workspace/pkg_portal') {
+                    sh """
+                        echo '🔹 Initializing Terraform...'
+                        terraform init
+                        echo '🔹 Applying Terraform...'
+                        terraform apply -var-file=${TFVARS_FILE} -auto-approve
+                    """
+                }
+            }
+        }
+
+        stage('GHCR Login') {
+            steps {
+                sh """
+                    echo '🔑 Logging into GHCR...'
+                    echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
+                """
             }
         }
 
         stage('Deploy Docker Compose') {
             steps {
-                script {
-                    // Ensure docker-compose is installed on the host
-                    sh '''
-                        docker-compose --version || sudo apt-get update && sudo apt-get install -y docker-compose
-                    '''
-
-                    // Login to GHCR using variables from .env
-                    sh 'echo $GHCR_TOKEN | docker login ghcr.io -u $GHCR_USERNAME --password-stdin'
-
-                    // Run docker-compose using the repo's file
-                    sh '''
-                        docker-compose -f docker-compose.yml up -d
-                    '''
+                dir('/var/jenkins_home/workspace/pkg_portal') {
+                    sh """
+                        echo '🚀 Deploying Docker Compose...'
+                        docker compose -f docker-compose.yml up -d
+                        echo '✅ Docker Compose deployment finished'
+                        docker compose ps
+                    """
                 }
             }
         }
 
         stage('Verify Deployment') {
             steps {
-                script {
-                    sh '''
-                        docker ps
-                        docker-compose -f docker-compose.yml ps
-                    '''
+                dir('/var/jenkins_home/workspace/pkg_portal') {
+                    sh """
+                        echo '🔍 Checking containers status...'
+                        docker compose ps
+                        echo '🎉 Deployment verification finished!'
+                    """
                 }
             }
         }
     }
 
     post {
-        failure {
-            echo "❌ Deployment failed. Check logs above."
-        }
         success {
-            echo "✅ Deployment succeeded!"
+            echo "✅ Pipeline finished successfully!"
+        }
+        failure {
+            echo "❌ Pipeline failed. Check the logs above!"
         }
     }
 }
