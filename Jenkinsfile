@@ -1,7 +1,7 @@
 pipeline {
     agent {
         docker {
-            image 'docker:20.10.16'  // lightweight docker runner
+            image 'docker:20.10.16'      // lightweight docker runner
             args '-v /var/run/docker.sock:/var/run/docker.sock'
         }
     }
@@ -11,24 +11,41 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git 'https://github.com/Praven4754/pkg_portal.git'
+                git branch: 'main', url: 'https://github.com/Praven4754/pkg_portal.git'
+            }
+        }
+        stage('Docker Login') {
+            steps {
+                sh """
+                    echo \$DOCKERHUB_CREDENTIALS_PSW | docker login -u \$DOCKERHUB_CREDENTIALS_USR --password-stdin
+                """
             }
         }
         stage('Build Docker Image') {
             steps {
-                sh 'docker build -t pravenkumar871/pkg_portal .'
+                dir("${WORKSPACE}") {
+                    sh 'docker build -t pravenkumar871/pkg_portal .'
+                }
             }
         }
         stage('Push to DockerHub') {
             steps {
-                sh "echo ${DOCKERHUB_CREDENTIALS_PSW} | docker login -u ${DOCKERHUB_CREDENTIALS_USR} --password-stdin"
-                sh 'docker push pravenkumar871/pkg_portal'
+                dir("${WORKSPACE}") {
+                    sh 'docker push pravenkumar871/pkg_portal'
+                }
             }
         }
         stage('Run Container') {
             steps {
-                sh 'docker compose -f compose.yml up -d'
+                dir("${WORKSPACE}") {
+                    sh 'docker compose -f docker-compose.yml up -d'
+                }
             }
+        }
+    }
+    post {
+        always {
+            echo 'Pipeline finished.'
         }
     }
 }
