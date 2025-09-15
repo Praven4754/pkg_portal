@@ -2,19 +2,23 @@ pipeline {
     agent any
 
     environment {
-        // Read GHCR credentials from the mounted .env file
+        // Read GHCR credentials from mounted .env file
         GHCR_USERNAME = sh(script: "grep GHCR_USERNAME /var/jenkins_home/.env | cut -d'=' -f2", returnStdout: true).trim()
         GHCR_TOKEN    = sh(script: "grep GHCR_TOKEN /var/jenkins_home/.env | cut -d'=' -f2", returnStdout: true).trim()
-        // Set Terraform variables path
+        
+        // Path to Terraform variables
         TFVARS_FILE   = '/var/jenkins_home/terraform.tfvars'
+        
+        // AWS environment variables (point to mounted AWS credentials)
         AWS_SHARED_CREDENTIALS_FILE = '/var/jenkins_home/.aws/credentials'
         AWS_CONFIG_FILE             = '/var/jenkins_home/.aws/config'
     }
 
     stages {
+
         stage('Checkout Repo') {
             steps {
-                // Let Jenkins clone the repo into its workspace
+                // Checkout into the workspace automatically
                 git branch: 'main', url: 'https://github.com/Praven4754/pkg_portal.git'
             }
         }
@@ -58,7 +62,7 @@ pipeline {
             steps {
                 dir("${WORKSPACE}") {
                     sh """
-                        echo '🔍 Checking containers status...'
+                        echo '🔍 Verifying containers...'
                         docker compose ps
                         echo '🎉 Deployment verification finished!'
                     """
@@ -72,7 +76,7 @@ pipeline {
             echo "✅ Pipeline finished successfully!"
         }
         failure {
-            echo "❌ Pipeline failed. Check the logs above!"
+            echo "❌ Pipeline failed. Check logs above!"
         }
     }
 }
