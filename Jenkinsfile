@@ -11,7 +11,7 @@ pipeline {
         stage('Checkout Repo') {
             steps {
                 echo "🔄 Checking out pkg_portal repo..."
-                git 'https://github.com/Praven4754/pkg_portal.git'
+                git branch: 'main', url: 'https://github.com/Praven4754/pkg_portal.git'
             }
         }
 
