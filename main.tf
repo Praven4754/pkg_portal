@@ -13,29 +13,59 @@ provider "aws" {
 }
 
 # ----------------------
-# EC2 Key Pair
+# Check existing Key Pair
 # ----------------------
+data "aws_key_pair" "existing_key" {
+  key_name = var.key_name
+  # ignore errors if key does not exist
+  lifecycle {
+    ignore_errors = true
+  }
+}
+
+# Only create new key if not exists
 resource "tls_private_key" "ec2_key" {
+  count     = data.aws_key_pair.existing_key.id == "" ? 1 : 0
   algorithm = "RSA"
   rsa_bits  = 4096
 }
 
 resource "local_file" "pem_file" {
-  content  = tls_private_key.ec2_key.private_key_pem
-  filename = var.private_key_path
-  file_permission      = "0600"
+  count               = data.aws_key_pair.existing_key.id == "" ? 1 : 0
+  content             = tls_private_key.ec2_key[0].private_key_pem
+  filename            = var.private_key_path
+  file_permission     = "0600"
   directory_permission = "0700"
 }
 
 resource "aws_key_pair" "generated_key" {
+  count      = data.aws_key_pair.existing_key.id == "" ? 1 : 0
   key_name   = var.key_name
-  public_key = tls_private_key.ec2_key.public_key_openssh
+  public_key = tls_private_key.ec2_key[0].public_key_openssh
+}
+
+locals {
+  key_name_to_use = data.aws_key_pair.existing_key.id != "" ? data.aws_key_pair.existing_key.key_name : aws_key_pair.generated_key[0].key_name
 }
 
 # ----------------------
-# Security Group
+# Check existing Security Group
 # ----------------------
+data "aws_security_group" "existing_pkg_portal_sg" {
+  filter {
+    name   = "group-name"
+    values = ["pkg-portal-sg"]
+  }
+
+  # ignore errors if SG does not exist
+  lifecycle {
+    ignore_errors = true
+  }
+}
+
+# Create SG only if it doesn't exist
 resource "aws_security_group" "pkg_portal_sg" {
+  count       = length(data.aws_security_group.existing_pkg_portal_sg.ids) == 0 ? 1 : 0
   name        = "pkg-portal-sg"
   description = "Allow SSH, HTTP, HTTPS, and app ports"
 
@@ -83,6 +113,10 @@ resource "aws_security_group" "pkg_portal_sg" {
   }
 }
 
+locals {
+  sg_id = length(data.aws_security_group.existing_pkg_portal_sg.ids) > 0 ? data.aws_security_group.existing_pkg_portal_sg.ids[0] : aws_security_group.pkg_portal_sg[0].id
+}
+
 # ----------------------
 # Latest Ubuntu AMI
 # ----------------------
@@ -108,8 +142,8 @@ data "aws_ami" "ubuntu" {
 resource "aws_instance" "pkg_portal" {
   ami                         = data.aws_ami.ubuntu.id
   instance_type               = "t2.medium"
-  key_name                    = aws_key_pair.generated_key.key_name
-  vpc_security_group_ids      = [aws_security_group.pkg_portal_sg.id]
+  key_name                    = local.key_name_to_use
+  vpc_security_group_ids      = [local.sg_id]
   associate_public_ip_address = true
 
   tags = merge(var.resource_tags, { Name = "pkg_portal-instance" })
@@ -120,7 +154,7 @@ resource "aws_instance" "pkg_portal" {
     exec > >(tee /var/log/user-data.log) 2>&1
 
     apt-get update -y
-    apt-get install -y ca-certificates curl gnupg lsb-release
+    apt-get install -y ca-certificates curl gnupg lsb-release unzip
 
     # Install Docker & Compose plugin
     mkdir -p /etc/apt/keyrings
@@ -160,7 +194,7 @@ resource "null_resource" "wait_for_docker" {
       type        = "ssh"
       host        = aws_instance.pkg_portal.public_ip
       user        = "ubuntu"
-      private_key = tls_private_key.ec2_key.private_key_pem
+      private_key = tls_private_key.ec2_key.count > 0 ? tls_private_key.ec2_key[0].private_key_pem : file(var.private_key_path)
       timeout     = "10m"
     }
 
@@ -184,7 +218,7 @@ resource "null_resource" "upload_files" {
       type        = "ssh"
       host        = aws_instance.pkg_portal.public_ip
       user        = "ubuntu"
-      private_key = tls_private_key.ec2_key.private_key_pem
+      private_key = tls_private_key.ec2_key.count > 0 ? tls_private_key.ec2_key[0].private_key_pem : file(var.private_key_path)
     }
   }
 
@@ -196,7 +230,7 @@ resource "null_resource" "upload_files" {
       type        = "ssh"
       host        = aws_instance.pkg_portal.public_ip
       user        = "ubuntu"
-      private_key = tls_private_key.ec2_key.private_key_pem
+      private_key = tls_private_key.ec2_key.count > 0 ? tls_private_key.ec2_key[0].private_key_pem : file(var.private_key_path)
     }
   }
 }
@@ -212,13 +246,13 @@ resource "null_resource" "deploy_application" {
       type        = "ssh"
       host        = aws_instance.pkg_portal.public_ip
       user        = "ubuntu"
-      private_key = tls_private_key.ec2_key.private_key_pem
+      private_key = tls_private_key.ec2_key.count > 0 ? tls_private_key.ec2_key[0].private_key_pem : file(var.private_key_path)
       timeout     = "15m"
     }
 
     inline = [
       "cd /home/ubuntu/pkg_portal",
-      "echo '🔑 Logging into GHCR...'",
+      "echo '🔑 Logging into GHCR...' ",
       "bash -c '. .env && echo \"$GHCR_TOKEN\" | sudo -E docker login ghcr.io -u \"$GHCR_USERNAME\" --password-stdin'",
       "echo '⬇️ Pulling Docker images (once)...'",
       "sudo -E docker compose pull --quiet",
