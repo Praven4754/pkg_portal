@@ -2,23 +2,18 @@ pipeline {
     agent any
 
     environment {
-        // Read GHCR credentials from mounted .env file
-        GHCR_USERNAME = sh(script: "grep GHCR_USERNAME /var/jenkins_home/.env | cut -d'=' -f2", returnStdout: true).trim()
-        GHCR_TOKEN    = sh(script: "grep GHCR_TOKEN /var/jenkins_home/.env | cut -d'=' -f2", returnStdout: true).trim()
-        
-        // Path to Terraform variables
+        // Terraform vars path
         TFVARS_FILE   = '/var/jenkins_home/terraform.tfvars'
-        
-        // AWS environment variables (point to mounted AWS credentials)
-        AWS_SHARED_CREDENTIALS_FILE = '/var/jenkins_home/.aws/credentials'
-        AWS_CONFIG_FILE             = '/var/jenkins_home/.aws/config'
+
+        // AWS credentials (mounted from host)
+        AWS_SHARED_CREDENTIALS_FILE = '/root/.aws/credentials'
+        AWS_CONFIG_FILE             = '/root/.aws/config'
     }
 
     stages {
 
         stage('Checkout Repo') {
             steps {
-                // Checkout into the workspace automatically
                 git branch: 'main', url: 'https://github.com/Praven4754/pkg_portal.git'
             }
         }
@@ -38,10 +33,16 @@ pipeline {
 
         stage('GHCR Login') {
             steps {
-                sh """
-                    echo '🔑 Logging into GHCR...'
-                    echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
-                """
+                script {
+                    // Read from mounted .env dynamically
+                    def ghcrUser = sh(script: "grep GHCR_USERNAME /var/jenkins_home/.env | cut -d'=' -f2", returnStdout: true).trim()
+                    def ghcrToken = sh(script: "grep GHCR_TOKEN /var/jenkins_home/.env | cut -d'=' -f2", returnStdout: true).trim()
+
+                    sh """
+                        echo '🔑 Logging into GHCR...'
+                        echo "${ghcrToken}" | docker login ghcr.io -u "${ghcrUser}" --password-stdin
+                    """
+                }
             }
         }
 
@@ -52,7 +53,6 @@ pipeline {
                         echo '🚀 Deploying Docker Compose...'
                         docker compose -f docker-compose.yml up -d
                         echo '✅ Docker Compose deployment finished'
-                        docker compose ps
                     """
                 }
             }
