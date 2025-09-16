@@ -22,7 +22,7 @@ resource "tls_private_key" "ec2_key" {
 
 resource "local_file" "pem_file" {
   content  = tls_private_key.ec2_key.private_key_pem
-  filename = var.private_key_path
+  filename = "/root/.ssh/pkg_portal-key.pem"   # <-- Persisted inside Jenkins container volume
 }
 
 # Fix PEM permissions on Windows
@@ -264,7 +264,7 @@ output "instance_public_ip" {
 }
 
 output "ssh_command" {
-  value = "ssh -i ${var.private_key_path} ubuntu@${aws_instance.pkg_portal.public_ip}"
+  value = "ssh -i /root/.ssh/pkg_portal-key.pem ubuntu@${aws_instance.pkg_portal.public_ip}"
 }
 
 output "application_urls" {
