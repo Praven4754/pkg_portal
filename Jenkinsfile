@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         // Terraform vars path
-        TFVARS_FILE   = '/var/jenkins_home/terraform.tfvars'
+        TFVARS_FILE = '/var/jenkins_home/terraform.tfvars'
 
         // AWS credentials (mounted from host)
         AWS_SHARED_CREDENTIALS_FILE = '/root/.aws/credentials'
@@ -14,6 +14,7 @@ pipeline {
 
         stage('Checkout Repo') {
             steps {
+                echo "📥 Checking out GitHub repo..."
                 git branch: 'main', url: 'https://github.com/Praven4754/pkg_portal.git'
             }
         }
@@ -21,12 +22,14 @@ pipeline {
         stage('Terraform Init & Apply') {
             steps {
                 dir("${WORKSPACE}") {
-                    sh """
-                        echo '🔹 Initializing Terraform...'
-                        terraform init
-                        echo '🔹 Applying Terraform...'
-                        terraform apply -var-file=${TFVARS_FILE} -auto-approve
-                    """
+                    echo "🔹 Initializing Terraform..."
+                    sh "terraform init"
+
+                    echo "🔹 Planning Terraform..."
+                    sh "terraform plan -var-file=${TFVARS_FILE}"
+
+                    echo "🔹 Applying Terraform..."
+                    sh "terraform apply -var-file=${TFVARS_FILE} -auto-approve"
                 }
             }
         }
@@ -34,12 +37,12 @@ pipeline {
         stage('GHCR Login') {
             steps {
                 script {
-                    // Read from mounted .env dynamically
-                    def ghcrUser = sh(script: "grep GHCR_USERNAME /var/jenkins_home/.env | cut -d'=' -f2", returnStdout: true).trim()
+                    // Read GHCR credentials dynamically from mounted .env
+                    def ghcrUser  = sh(script: "grep GHCR_USERNAME /var/jenkins_home/.env | cut -d'=' -f2", returnStdout: true).trim()
                     def ghcrToken = sh(script: "grep GHCR_TOKEN /var/jenkins_home/.env | cut -d'=' -f2", returnStdout: true).trim()
 
+                    echo "🔑 Logging into GHCR..."
                     sh """
-                        echo '🔑 Logging into GHCR...'
                         echo "${ghcrToken}" | docker login ghcr.io -u "${ghcrUser}" --password-stdin
                     """
                 }
@@ -48,10 +51,10 @@ pipeline {
 
         stage('Deploy Docker Compose') {
             steps {
-                dir("${WORKSPACE}") {
+                dir("/var/jenkins_home/pkg_portal") {   // Must match main.tf uploaded location
+                    echo "🚀 Deploying Docker Compose..."
                     sh """
-                        echo '🚀 Deploying Docker Compose...'
-                        docker compose -f docker-compose.yml up -d
+                        docker compose up -d
                         echo '✅ Docker Compose deployment finished'
                     """
                 }
@@ -60,9 +63,9 @@ pipeline {
 
         stage('Verify Deployment') {
             steps {
-                dir("${WORKSPACE}") {
+                dir("/var/jenkins_home/pkg_portal") {
+                    echo "🔍 Verifying containers..."
                     sh """
-                        echo '🔍 Verifying containers...'
                         docker compose ps
                         echo '🎉 Deployment verification finished!'
                     """
